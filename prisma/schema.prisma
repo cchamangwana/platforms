@@ -1,0 +1,333 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// B2B INVOICE MANAGEMENT SYSTEM SCHEMA
+// ============================================
+// This schema demonstrates key Prisma concepts:
+// - Relations (one-to-many, one-to-one)
+// - Enums for status fields
+// - Decimal type for financial data
+// - DateTime tracking (created/updated)
+// - Indexes for query performance
+// - Cascading deletes
+// ============================================
+
+// User model - represents users who can access the system
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      UserRole @default(USER)
+  active    Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  invoices  Invoice[]
+  expenses  Expense[]
+
+  @@index([email])
+}
+
+enum UserRole {
+  ADMIN
+  USER
+  ACCOUNTANT
+}
+
+// Company model - your company details
+model Company {
+  id      String  @id @default(cuid())
+  name    String
+  email   String
+  phone   String?
+  website String?
+
+  // Address fields
+  address     String?
+  city        String?
+  state       String?
+  postalCode  String?
+  country     String?
+
+  // Tax information
+  taxId       String? // Tax ID/EIN
+  taxRate     Float   @default(0) // Default tax rate percentage
+
+  // Branding
+  logo        String? // URL to logo
+  primaryColor String? @default("#000000")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  clients   Client[]
+  invoices  Invoice[]
+  projects  Project[]
+  expenses  Expense[]
+}
+
+// Client model - customers/clients you invoice
+model Client {
+  id        String  @id @default(cuid())
+  companyId String
+
+  // Basic info
+  name      String
+  email     String
+  phone     String?
+  website   String?
+
+  // Address
+  address     String?
+  city        String?
+  state       String?
+  postalCode  String?
+  country     String?
+
+  // Business details
+  taxId       String?
+
+  // Status
+  active      Boolean @default(true)
+
+  // Notes
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoices  Invoice[]
+  projects  Project[]
+
+  @@index([companyId])
+  @@index([email])
+}
+
+// Project model - projects that can be linked to invoices
+model Project {
+  id          String        @id @default(cuid())
+  companyId   String
+  clientId    String
+
+  name        String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+
+  // Budget tracking
+  budget      Float?
+
+  startDate   DateTime?
+  endDate     DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  invoices    Invoice[]
+  expenses    Expense[]
+
+  @@index([companyId])
+  @@index([clientId])
+  @@index([status])
+}
+
+enum ProjectStatus {
+  ACTIVE
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+// Invoice model - invoices sent to clients
+model Invoice {
+  id            String        @id @default(cuid())
+  invoiceNumber String        @unique
+  companyId     String
+  clientId      String
+  projectId     String?
+  userId        String        // User who created the invoice
+
+  // Status tracking
+  status        InvoiceStatus @default(DRAFT)
+
+  // Dates
+  issueDate     DateTime      @default(now())
+  dueDate       DateTime
+  paidDate      DateTime?
+
+  // Financial details
+  subtotal      Float         @default(0)
+  taxRate       Float         @default(0)
+  taxAmount     Float         @default(0)
+  discount      Float         @default(0) // Discount amount or percentage
+  total         Float         @default(0)
+  amountPaid    Float         @default(0)
+
+  // Additional info
+  notes         String?
+  terms         String?       // Payment terms
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  company       Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  client        Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  project       Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user          User              @relation(fields: [userId], references: [id])
+  lineItems     InvoiceLineItem[]
+  payments      Payment[]
+
+  @@index([companyId])
+  @@index([clientId])
+  @@index([projectId])
+  @@index([userId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+// InvoiceLineItem model - individual items on an invoice
+model InvoiceLineItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+
+  description String
+  quantity    Float    @default(1)
+  unitPrice   Float
+  amount      Float    // quantity * unitPrice
+
+  // Optional: categorization
+  category    String?
+
+  // Order in the invoice
+  order       Int      @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+// Payment model - payments received for invoices
+model Payment {
+  id            String        @id @default(cuid())
+  invoiceId     String
+
+  amount        Float
+  paymentDate   DateTime      @default(now())
+  paymentMethod PaymentMethod @default(BANK_TRANSFER)
+
+  // Transaction details
+  reference     String?       // Check number, transaction ID, etc.
+  notes         String?
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@index([paymentDate])
+}
+
+enum PaymentMethod {
+  CASH
+  CHECK
+  BANK_TRANSFER
+  CREDIT_CARD
+  DEBIT_CARD
+  PAYPAL
+  STRIPE
+  OTHER
+}
+
+// Expense model - business expenses tracking
+model Expense {
+  id          String        @id @default(cuid())
+  companyId   String
+  projectId   String?
+  userId      String        // User who recorded the expense
+
+  description String
+  amount      Float
+  category    ExpenseCategory
+
+  expenseDate DateTime      @default(now())
+
+  // Receipt/proof
+  receipt     String?       // URL to receipt image
+
+  // Status
+  status      ExpenseStatus @default(PENDING)
+
+  notes       String?
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relations
+  company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project     Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user        User          @relation(fields: [userId], references: [id])
+
+  @@index([companyId])
+  @@index([projectId])
+  @@index([userId])
+  @@index([category])
+  @@index([expenseDate])
+}
+
+enum ExpenseCategory {
+  OFFICE_SUPPLIES
+  TRAVEL
+  MEALS
+  UTILITIES
+  SOFTWARE
+  HARDWARE
+  MARKETING
+  PROFESSIONAL_SERVICES
+  RENT
+  INSURANCE
+  TAXES
+  PAYROLL
+  OTHER
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REIMBURSED
+}
