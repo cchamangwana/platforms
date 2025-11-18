@@ -12,9 +12,10 @@ datasource db {
 }
 
 // ============================================
-// B2B INVOICE MANAGEMENT SYSTEM SCHEMA
+// MULTI-TENANT B2B INVOICE MANAGEMENT SYSTEM
 // ============================================
 // This schema demonstrates key Prisma concepts:
+// - Multi-tenancy with data isolation
 // - Relations (one-to-many, one-to-one)
 // - Enums for status fields
 // - Decimal type for financial data
@@ -23,9 +24,36 @@ datasource db {
 // - Cascading deletes
 // ============================================
 
+// Tenant model - represents each business using the platform
+model Tenant {
+  id          String   @id @default(cuid())
+  subdomain   String   @unique  // Matches the subdomain from Redis
+  name        String
+  description String?
+  emoji       String?
+
+  // Tenant settings
+  active      Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations - all tenant-owned data
+  users       User[]
+  companies   Company[]
+  clients     Client[]
+  projects    Project[]
+  invoices    Invoice[]
+  expenses    Expense[]
+
+  @@index([subdomain])
+  @@index([active])
+}
+
 // User model - represents users who can access the system
 model User {
   id        String   @id @default(cuid())
+  tenantId  String   // Multi-tenant: each user belongs to a tenant
   email     String   @unique
   name      String
   role      UserRole @default(USER)
@@ -35,9 +63,11 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invoices  Invoice[]
   expenses  Expense[]
 
+  @@index([tenantId])
   @@index([email])
 }
 
@@ -49,11 +79,12 @@ enum UserRole {
 
 // Company model - your company details
 model Company {
-  id      String  @id @default(cuid())
-  name    String
-  email   String
-  phone   String?
-  website String?
+  id        String  @id @default(cuid())
+  tenantId  String  // Multi-tenant: each company belongs to a tenant
+  name      String
+  email     String
+  phone     String?
+  website   String?
 
   // Address fields
   address     String?
@@ -74,15 +105,19 @@ model Company {
   updatedAt DateTime @updatedAt
 
   // Relations
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   clients   Client[]
   invoices  Invoice[]
   projects  Project[]
   expenses  Expense[]
+
+  @@index([tenantId])
 }
 
 // Client model - customers/clients you invoice
 model Client {
   id        String  @id @default(cuid())
+  tenantId  String  // Multi-tenant: each client belongs to a tenant
   companyId String
 
   // Basic info
@@ -111,10 +146,12 @@ model Client {
   updatedAt DateTime @updatedAt
 
   // Relations
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   invoices  Invoice[]
   projects  Project[]
 
+  @@index([tenantId])
   @@index([companyId])
   @@index([email])
 }
@@ -122,6 +159,7 @@ model Client {
 // Project model - projects that can be linked to invoices
 model Project {
   id          String        @id @default(cuid())
+  tenantId    String        // Multi-tenant: each project belongs to a tenant
   companyId   String
   clientId    String
 
@@ -139,11 +177,13 @@ model Project {
   updatedAt   DateTime @updatedAt
 
   // Relations
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   invoices    Invoice[]
   expenses    Expense[]
 
+  @@index([tenantId])
   @@index([companyId])
   @@index([clientId])
   @@index([status])
@@ -159,6 +199,7 @@ enum ProjectStatus {
 // Invoice model - invoices sent to clients
 model Invoice {
   id            String        @id @default(cuid())
+  tenantId      String        // Multi-tenant: each invoice belongs to a tenant
   invoiceNumber String        @unique
   companyId     String
   clientId      String
@@ -189,6 +230,7 @@ model Invoice {
   updatedAt     DateTime      @updatedAt
 
   // Relations
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   company       Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   client        Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
   project       Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
@@ -196,6 +238,7 @@ model Invoice {
   lineItems     InvoiceLineItem[]
   payments      Payment[]
 
+  @@index([tenantId])
   @@index([companyId])
   @@index([clientId])
   @@index([projectId])
@@ -276,6 +319,7 @@ enum PaymentMethod {
 // Expense model - business expenses tracking
 model Expense {
   id          String        @id @default(cuid())
+  tenantId    String        // Multi-tenant: each expense belongs to a tenant
   companyId   String
   projectId   String?
   userId      String        // User who recorded the expense
@@ -298,10 +342,12 @@ model Expense {
   updatedAt   DateTime      @updatedAt
 
   // Relations
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   project     Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
   user        User          @relation(fields: [userId], references: [id])
 
+  @@index([tenantId])
   @@index([companyId])
   @@index([projectId])
   @@index([userId])
